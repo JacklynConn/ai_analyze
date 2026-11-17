@@ -5,6 +5,7 @@ import 'dart:math' as math;
 import 'package:dio/dio.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
+import '../core/http_headers.dart';
 import '../models/candle.dart';
 import 'price_repository.dart';
 
@@ -194,7 +195,7 @@ class ForexComPriceRepository implements PriceRepository {
           'fields': 'close,bid,ask,open,high,low,change,change_abs,lp_time',
         },
         options: Options(
-          headers: <String, dynamic>{'User-Agent': 'Mozilla/5.0'},
+          headers: webSafeUserAgent(),
           receiveTimeout: const Duration(seconds: 8),
         ),
       );

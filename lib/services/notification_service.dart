@@ -1,5 +1,6 @@
-import 'package:material_ui/material_ui.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../core/theme.dart';
 import '../models/news_item.dart';
@@ -23,6 +24,11 @@ class NotificationService {
 
   Future<void> init({void Function(String payload)? onTap}) async {
     if (_ready) return;
+    // flutter_local_notifications has no working web implementation: calling
+    // initialize() there logs "The Notification API is not supported in this
+    // browser" and can throw UnsupportedError in unsupported browsers.
+    // In-app alerts (signal cards, banners) still work on web without it.
+    if (kIsWeb) return;
     const android = AndroidInitializationSettings('@mipmap/ic_launcher');
     const ios = DarwinInitializationSettings(
       requestAlertPermission: true,

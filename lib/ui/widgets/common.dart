@@ -59,11 +59,16 @@ class SectionCard extends StatelessWidget {
       ),
     );
 
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.surface,
+    // Material (not a DecoratedBox/Container): children such as
+    // SwitchListTile / ListTile must paint their background and ink
+    // splashes on the nearest Material ancestor — a DecoratedBox in
+    // between triggers Flutter's "ListTile background color or ink
+    // splashes may be invisible" assertion and hides the ink effects.
+    return Material(
+      color: AppColors.surface,
+      shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppColors.border),
+        side: const BorderSide(color: AppColors.border),
       ),
       clipBehavior: Clip.antiAlias,
       child: onTap == null ? content : InkWell(onTap: onTap, child: content),
