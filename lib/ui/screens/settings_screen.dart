@@ -112,7 +112,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 activeThumbColor: AppColors.gold,
                 title: const Text('Demo feed (simulated ticks)', style: TextStyle(fontSize: 13)),
                 subtitle: const Text(
-                  'Turn off for real gold prices (Yahoo Finance, or Finnhub websocket if a key is set)',
+                  'Turn off for realtime FOREX.com XAUUSD (FOREXCOM:XAUUSD via TradingView, no key needed; Finnhub websocket if a key is set below)',
                   style: TextStyle(fontSize: 11, color: AppColors.muted),
                 ),
                 onChanged: (v) => _patch(_draft.copyWith(demoMode: v)),

@@ -9,6 +9,7 @@ import '../widgets/common.dart';
 import '../widgets/model_council.dart';
 import '../widgets/news_widgets.dart';
 import '../widgets/price_header.dart';
+import '../widgets/realtime_price_card.dart';
 import '../widgets/signal_card.dart';
 
 class DashboardScreen extends ConsumerWidget {
@@ -35,6 +36,8 @@ class DashboardScreen extends ConsumerWidget {
             onRefresh: ctrl.manualRefresh,
             onReanalyse: ctrl.reanalyse,
           ),
+          const SizedBox(height: 14),
+          RealtimePriceCard(state: s),
           if (s.error != null) ...<Widget>[
             const SizedBox(height: 10),
             Container(

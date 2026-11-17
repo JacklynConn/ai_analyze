@@ -20,7 +20,8 @@ class AppSettings {
   final double riskPercent;
 
   const AppSettings({
-    this.demoMode = true,
+    // Off by default: the app opens on the realtime FOREX.com XAUUSD feed.
+    this.demoMode = false,
     this.geminiKey = AppKeys.gemini,
     this.groqKey = AppKeys.groq,
     this.openRouterKey = AppKeys.openRouter,
@@ -90,7 +91,7 @@ class AppSettings {
       };
 
   static AppSettings fromJson(Map<String, dynamic> j) => AppSettings(
-        demoMode: j['demoMode'] as bool? ?? true,
+        demoMode: j['demoMode'] as bool? ?? false,
         disabledModels: (j['disabledModels'] as List<dynamic>?)?.map((e) => e.toString()).toSet() ??
             <String>{},
         minConfidence: (j['minConfidence'] as num?)?.toDouble() ?? TradingConfig.minConfirmConfidence,

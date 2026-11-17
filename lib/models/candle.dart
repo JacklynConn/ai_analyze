@@ -79,12 +79,21 @@ class Tick {
   final double? ask;
   final double dayChangePct;
 
+  /// Session open / high / low, when the feed provides them
+  /// (FOREX.com via TradingView does; other feeds may leave them null).
+  final double? dayOpen;
+  final double? dayHigh;
+  final double? dayLow;
+
   const Tick({
     required this.price,
     required this.time,
     this.bid,
     this.ask,
     this.dayChangePct = 0,
+    this.dayOpen,
+    this.dayHigh,
+    this.dayLow,
   });
 
   double get spread => (ask != null && bid != null) ? (ask! - bid!) : 0;
@@ -95,6 +104,9 @@ class Tick {
         'b': bid,
         'a': ask,
         'd': dayChangePct,
+        'o': dayOpen,
+        'h': dayHigh,
+        'l': dayLow,
       };
 
   factory Tick.fromJson(Map<String, dynamic> j) => Tick(
@@ -103,5 +115,8 @@ class Tick {
         bid: (j['b'] as num?)?.toDouble(),
         ask: (j['a'] as num?)?.toDouble(),
         dayChangePct: (j['d'] as num?)?.toDouble() ?? 0,
+        dayOpen: (j['o'] as num?)?.toDouble(),
+        dayHigh: (j['h'] as num?)?.toDouble(),
+        dayLow: (j['l'] as num?)?.toDouble(),
       );
 }

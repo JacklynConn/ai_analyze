@@ -12,6 +12,7 @@ import '../data/ai/ai_router.dart';
 import '../data/ai/gemini_provider.dart';
 import '../data/ai/local_rules_provider.dart';
 import '../data/ai/openai_compatible_provider.dart';
+import '../data/forexcom_repository.dart';
 import '../data/news_repository.dart';
 import '../data/price_repository.dart';
 import '../models/candle.dart';
@@ -207,11 +208,13 @@ class DashboardController extends Notifier<DashboardState> {
   }
 
   void _buildRepositories() {
+    // Default live feed: FOREX.com XAUUSD (FOREXCOM:XAUUSD, realtime).
+    // A Finnhub key, when set, still takes over as before.
     _price = _settings.demoMode
         ? MockPriceRepository()
         : (_settings.finnhubKey.trim().isNotEmpty
             ? FinnhubPriceRepository(apiKey: _settings.finnhubKey)
-            : YahooPriceRepository());
+            : ForexComPriceRepository());
     _news = CompositeNewsRepository();
     _calendar = CompositeCalendarRepository();
   }
