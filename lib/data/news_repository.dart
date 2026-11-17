@@ -5,6 +5,7 @@ import 'package:dio/dio.dart';
 import 'package:xml/xml.dart';
 
 import '../analysis/news_impact.dart';
+import '../core/http_headers.dart';
 import '../models/news_item.dart';
 
 abstract class NewsRepository {
@@ -93,7 +94,7 @@ class GoogleNewsRssRepository implements NewsRepository {
       uri.toString(),
       options: Options(
         responseType: ResponseType.plain,
-        headers: <String, dynamic>{'User-Agent': 'Mozilla/5.0'},
+        headers: webSafeUserAgent(),
         receiveTimeout: const Duration(seconds: 15),
       ),
     );
@@ -218,7 +219,7 @@ class ForexFactoryCalendarRepository implements CalendarRepository {
     final res = await _dio.get<List<dynamic>>(
       'https://nfs.faireconomy.media/ff_calendar_thisweek.json',
       options: Options(
-        headers: <String, dynamic>{'User-Agent': 'Mozilla/5.0'},
+        headers: webSafeUserAgent(),
         receiveTimeout: const Duration(seconds: 15),
       ),
     );

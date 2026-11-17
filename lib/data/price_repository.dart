@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:dio/dio.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
+import '../core/http_headers.dart';
 import '../models/candle.dart';
 
 abstract class PriceRepository {
@@ -148,7 +149,7 @@ class YahooPriceRepository implements PriceRepository {
         _base,
         queryParameters: <String, dynamic>{'interval': '1m', 'range': '1d'},
         options: Options(
-          headers: <String, dynamic>{'User-Agent': 'Mozilla/5.0'},
+          headers: webSafeUserAgent(),
           receiveTimeout: const Duration(seconds: 10),
         ),
       );
@@ -190,7 +191,7 @@ class YahooPriceRepository implements PriceRepository {
       _base,
       queryParameters: <String, dynamic>{'interval': yInterval, 'range': range},
       options: Options(
-        headers: <String, dynamic>{'User-Agent': 'Mozilla/5.0'},
+        headers: webSafeUserAgent(),
         receiveTimeout: const Duration(seconds: 15),
       ),
     );
