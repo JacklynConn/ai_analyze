@@ -140,7 +140,7 @@ class _RealtimePriceCardState extends State<RealtimePriceCard> {
                 ),
               ),
               Text(
-                'Candles: Yahoo GC=F backdrop',
+                'Candles: FOREXCOM via TradingView',
                 style: const TextStyle(color: AppColors.muted, fontSize: 10),
               ),
             ],
