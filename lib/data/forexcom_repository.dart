@@ -20,10 +20,9 @@ import 'price_repository.dart';
 ///     ticks with bid / ask / session OHLC, no API key.
 ///  2. Fallback: TradingView scanner poll for the same symbol every 3 s,
 ///     used automatically while the socket is down / reconnecting.
-///  3. Candles: Yahoo Finance `GC=F` (same convention as the Finnhub feed in
-///     this app). Futures can differ from the FOREX.com spot quote by a few
-///     dollars — the live *price* shown in the header always comes from
-///     FOREX.com; candles are only the chart backdrop.
+///  3. Candles: the same FOREXCOM symbol via a TradingView chart session
+///     (see [candles]), with CORS-friendly fallbacks. The live *price* shown
+///     in the header always comes from FOREX.com ticks above.
 class ForexComPriceRepository implements PriceRepository {
   ForexComPriceRepository({Dio? dio})
       : _dio = dio ?? Dio(),
@@ -41,6 +40,8 @@ class ForexComPriceRepository implements PriceRepository {
   Timer? _reconnectTimer;
   Timer? _fallbackTimer;
   DateTime? _lastTickAt;
+  DateTime? _lastEnrichAt;
+  bool _lastHadBidAsk = false;
   bool _disposed = false;
   bool _started = false;
 
@@ -61,7 +62,12 @@ class ForexComPriceRepository implements PriceRepository {
       _fallbackTimer = Timer.periodic(const Duration(seconds: 3), (_) {
         final silent = _lastTickAt == null ||
             DateTime.now().difference(_lastTickAt!) > const Duration(seconds: 8);
-        if (silent && !_disposed) _pollScanner();
+        // Some quote updates carry only the last price; top up bid/ask
+        // from the scanner at most every 20 s so the quote card fills in.
+        final needsBidAsk = !_lastHadBidAsk &&
+            (_lastEnrichAt == null ||
+                DateTime.now().difference(_lastEnrichAt!) > const Duration(seconds: 20));
+        if ((silent || needsBidAsk) && !_disposed) _pollScanner();
       });
       _pollScanner();
     }
@@ -131,9 +137,13 @@ class ForexComPriceRepository implements PriceRepository {
   /// TradingView frames look like `~m~<len>~m~<payload>` and several frames
   /// can arrive glued together. `~h~<n>` payloads are heartbeats that must
   /// be echoed back verbatim.
+  /// Splits a raw socket message into individual TradingView payloads.
+  static Iterable<String> payloadsOf(String data) =>
+      data.split(RegExp(r'~m~\d+~m~')).where((p) => p.isNotEmpty);
+
   void _onSocketData(dynamic data) {
     if (data is! String) return;
-    for (final part in data.split(RegExp(r'~m~\d+~m~'))) {
+    for (final part in payloadsOf(data)) {
       if (part.isEmpty) continue;
       if (part.startsWith('~h~')) {
         try {
@@ -187,6 +197,7 @@ class ForexComPriceRepository implements PriceRepository {
 
   // ------------------------------------------------- scanner poll fallback
   Future<void> _pollScanner() async {
+    _lastEnrichAt = DateTime.now();
     try {
       final res = await _dio.get<Map<String, dynamic>>(
         'https://scanner.tradingview.com/symbol',
@@ -238,13 +249,163 @@ class ForexComPriceRepository implements PriceRepository {
 
   void _emit(Tick tick) {
     _lastTickAt = DateTime.now();
+    _lastHadBidAsk = tick.bid != null && tick.ask != null;
     if (!_disposed && !_controller.isClosed) _controller.add(tick);
   }
 
   // ---------------------------------------------------------------- candles
+  /// Candles come from the *same* FOREXCOM:XAUUSD symbol over a TradingView
+  /// chart session (WebSocket — no CORS problem in browsers, unlike the
+  /// Yahoo REST endpoint, which rejects cross-origin calls and caused the
+  /// "DioException [connection error] / XMLHttpRequest onError" banner on
+  /// web). Fallbacks, in order: Binance Vision PAXGUSDT klines (gold-backed,
+  /// CORS-enabled public API), then Yahoo GC=F (native only in practice).
   @override
-  Future<List<Candle>> candles({String interval = '5m', int limit = 200}) =>
-      _yahoo.candles(interval: interval, limit: limit);
+  Future<List<Candle>> candles({String interval = '5m', int limit = 200}) async {
+    try {
+      final tv = await _tvCandles(interval: interval, limit: limit);
+      if (tv.isNotEmpty) return tv;
+    } catch (_) {}
+    try {
+      final paxg = await _paxgCandles(interval: interval, limit: limit);
+      if (paxg.isNotEmpty) return paxg;
+    } catch (_) {}
+    try {
+      return await _yahoo.candles(interval: interval, limit: limit);
+    } catch (_) {
+      return <Candle>[];
+    }
+  }
+
+  Future<List<Candle>> _tvCandles({required String interval, required int limit}) async {
+    const timeframes = <String, String>{
+      '1m': '1', '5m': '5', '15m': '15', '30m': '30', '1h': '60',
+    };
+    final timeframe = timeframes[interval] ?? '5';
+    final chartSession = _session('cs_');
+    final byTime = <int, Candle>{};
+    final done = Completer<void>();
+    WebSocketChannel? ch;
+    StreamSubscription<dynamic>? sub;
+
+    try {
+      ch = WebSocketChannel.connect(
+        Uri.parse('wss://data.tradingview.com/socket.io/websocket'),
+      );
+      void send(String m, List<dynamic> p) {
+        try {
+          ch?.sink.add(_frame(<String, dynamic>{'m': m, 'p': p}));
+        } catch (_) {}
+      }
+
+      sub = ch.stream.listen(
+        (dynamic data) {
+          if (data is! String) return;
+          for (final part in payloadsOf(data)) {
+            if (part.startsWith('~h~')) {
+              try {
+                ch?.sink.add(_frame(part));
+              } catch (_) {}
+              continue;
+            }
+            if (!part.startsWith('{')) continue;
+            try {
+              final decoded = jsonDecode(part) as Map<String, dynamic>;
+              if (decoded['m'] == 'timescale_update') {
+                _parseTimescale(decoded['p'], byTime);
+              } else if (decoded['m'] == 'series_completed' && !done.isCompleted) {
+                done.complete();
+              }
+            } catch (_) {}
+          }
+        },
+        onError: (_) {
+          if (!done.isCompleted) done.complete();
+        },
+        onDone: () {
+          if (!done.isCompleted) done.complete();
+        },
+        cancelOnError: true,
+      );
+
+      send('set_auth_token', <dynamic>['unauthorized_user_token']);
+      send('chart_create_session', <dynamic>[chartSession, '']);
+      send('resolve_symbol', <dynamic>[
+        chartSession,
+        'symbol_1',
+        '={"symbol":"$tvSymbol","adjustment":"splits","session":"extended"}',
+      ]);
+      send('create_series', <dynamic>[
+        chartSession, 'ser_1', 's1', 'symbol_1', timeframe, limit,
+      ]);
+
+      await done.future.timeout(const Duration(seconds: 15), onTimeout: () {});
+    } finally {
+      await sub?.cancel();
+      try {
+        await ch?.sink.close();
+      } catch (_) {}
+    }
+
+    final out = byTime.values.toList()..sort((a, b) => a.time.compareTo(b.time));
+    return out.length <= limit ? out : out.sublist(out.length - limit);
+  }
+
+  void _parseTimescale(dynamic p, Map<int, Candle> byTime) {
+    if (p is! List || p.length < 2 || p[1] is! Map) return;
+    for (final series in (p[1] as Map).values) {
+      if (series is! Map) continue;
+      final bars = series['s'];
+      if (bars is! List) continue;
+      for (final bar in bars) {
+        if (bar is! Map) continue;
+        final v = bar['v'];
+        if (v is! List || v.length < 5) continue;
+        if (v[0] is! num || v[1] is! num || v[2] is! num || v[3] is! num || v[4] is! num) continue;
+        final t = (v[0] as num).toInt();
+        byTime[t] = Candle(
+          time: DateTime.fromMillisecondsSinceEpoch(t * 1000),
+          open: (v[1] as num).toDouble(),
+          high: (v[2] as num).toDouble(),
+          low: (v[3] as num).toDouble(),
+          close: (v[4] as num).toDouble(),
+          volume: v.length > 5 && v[5] is num ? (v[5] as num).toDouble() : 0,
+        );
+      }
+    }
+  }
+
+  /// Gold-backed PAXG/USDT klines from Binance's public, CORS-enabled data
+  /// mirror — web-friendly chart backdrop that tracks spot gold closely.
+  Future<List<Candle>> _paxgCandles({required String interval, required int limit}) async {
+    const intervals = <String>{'1m', '5m', '15m', '30m', '1h'};
+    final res = await _dio.get<List<dynamic>>(
+      'https://data-api.binance.vision/api/v3/klines',
+      queryParameters: <String, dynamic>{
+        'symbol': 'PAXGUSDT',
+        'interval': intervals.contains(interval) ? interval : '5m',
+        'limit': limit,
+      },
+      options: Options(receiveTimeout: const Duration(seconds: 12)),
+    );
+    final rows = res.data ?? <dynamic>[];
+    final out = <Candle>[];
+    for (final row in rows) {
+      if (row is! List || row.length < 6) continue;
+      final t = row[0];
+      final o = double.tryParse('${row[1]}');
+      final h = double.tryParse('${row[2]}');
+      final l = double.tryParse('${row[3]}');
+      final c = double.tryParse('${row[4]}');
+      if (t is! num || o == null || h == null || l == null || c == null) continue;
+      out.add(Candle(
+        time: DateTime.fromMillisecondsSinceEpoch(t.toInt()),
+        open: o, high: h, low: l, close: c,
+        volume: double.tryParse('${row[5]}') ?? 0,
+      ));
+    }
+    return out;
+  }
 
   @override
   void dispose() {

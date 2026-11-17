@@ -222,42 +222,57 @@ class DashboardController extends Notifier<DashboardState> {
   // -------------------------------------------------------------- data pulls
   Future<void> refreshAll({bool runAi = true}) async {
     if (_price == null) return;
+    // Each source fails independently: one blocked endpoint (e.g. a
+    // CORS-rejected REST call in a browser, which Dio surfaces as a raw
+    // XMLHttpRequest error) must not wipe out the candles/news/chart or
+    // paint a scary error banner over a feed that is actually streaming.
+    List<Candle>? candles;
+    List<NewsItem>? news;
+    List<EconomicEvent>? events;
     try {
-      final results = await Future.wait(<Future<dynamic>>[
-        _price!.candles(interval: _settings.interval, limit: 240),
-        _news!.fetch(limit: 40),
-        _calendar!.fetch(),
-      ]);
-      final candles = results[0] as List<Candle>;
-      final news = results[1] as List<NewsItem>;
-      final events = results[2] as List<EconomicEvent>;
-      final agg = _newsEngine.aggregate(news);
+      candles = await _price!.candles(interval: _settings.interval, limit: 240);
+    } catch (_) {}
+    try {
+      news = await _news!.fetch(limit: 40);
+    } catch (_) {}
+    try {
+      events = await _calendar!.fetch();
+    } catch (_) {}
 
-      state = state.copyWith(
-        loading: false,
-        clearError: true,
-        candles: candles.isNotEmpty ? candles : state.candles,
-        news: news,
-        events: events,
-        newsRisk: agg.risk,
-        newsBias: agg.bias,
-        newsLive: _news!.isLive,
-        feedLive: _price!.isLive,
-        feedLabel: _price!.label,
-        interval: _settings.interval,
-        updatedAt: DateTime.now(),
-      );
+    final goodCandles =
+        (candles != null && candles.isNotEmpty) ? candles : state.candles;
+    final goodNews = (news != null && news.isNotEmpty) ? news : state.news;
+    final agg = _newsEngine.aggregate(goodNews);
+    final nothingWorks =
+        goodCandles.isEmpty && state.tick == null;
 
-      _recomputeTech();
-      _evaluateAndPublish();
-      _maybeRemindEvent();
+    state = state.copyWith(
+      loading: false,
+      // Only surface an error when we truly have nothing to show; partial
+      // failures keep last-good data and retry on the next 60 s poll.
+      clearError: !nothingWorks,
+      error: nothingWorks
+          ? 'Live data is temporarily unavailable — retrying automatically…'
+          : null,
+      candles: goodCandles,
+      news: goodNews,
+      events: (events != null && events.isNotEmpty) ? events : state.events,
+      newsRisk: agg.risk,
+      newsBias: agg.bias,
+      newsLive: _news!.isLive,
+      feedLive: _price!.isLive,
+      feedLabel: _price!.label,
+      interval: _settings.interval,
+      updatedAt: DateTime.now(),
+    );
 
-      final stale = state.aiUpdatedAt == null ||
-          DateTime.now().difference(state.aiUpdatedAt!) > TradingConfig.aiRefresh;
-      if (runAi || stale) await runAiAnalysis();
-    } catch (e) {
-      state = state.copyWith(loading: false, error: 'Data error: $e');
-    }
+    _recomputeTech();
+    _evaluateAndPublish();
+    _maybeRemindEvent();
+
+    final stale = state.aiUpdatedAt == null ||
+        DateTime.now().difference(state.aiUpdatedAt!) > TradingConfig.aiRefresh;
+    if (runAi || stale) await runAiAnalysis();
   }
 
   Future<void> runAiAnalysis() async {
