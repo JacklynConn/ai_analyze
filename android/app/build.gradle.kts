@@ -6,7 +6,11 @@ plugins {
 
 android {
     namespace = "com.example.ai_analyze"
-    compileSdk = flutter.compileSdkVersion
+    // flutter_local_notifications (and other current plugins) are compiled
+    // against Android SDK 37, so the app must compile against at least that
+    // even when the Flutter SDK's default is lower (36). Never go below
+    // Flutter's own default if it moves past 37 in the future.
+    compileSdk = maxOf(flutter.compileSdkVersion, 37)
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
