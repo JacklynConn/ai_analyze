@@ -14,6 +14,11 @@ android {
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
+        // flutter_local_notifications uses java.time APIs that are not
+        // present on older Android versions; AGP refuses to build
+        // (:app:checkDebugAarMetadata) unless core library desugaring
+        // is enabled together with the desugar_jdk_libs dependency below.
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
@@ -40,6 +45,12 @@ android {
             signingConfig = signingConfigs.getByName("debug")
         }
     }
+}
+
+dependencies {
+    // Backports java.time etc. to older Android APIs — required by
+    // flutter_local_notifications (see isCoreLibraryDesugaringEnabled above).
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }
 
 kotlin {
