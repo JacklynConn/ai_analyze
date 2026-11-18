@@ -1,4 +1,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Required for the realtime FOREX.com price stream (TradingView
+         WebSocket + REST fallbacks) and news/calendar fetches. Without
+         this, release/profile builds installed as APKs have no network
+         at all — the debug manifest alone is not enough. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
     <application
         android:label="ai_analyze"
         android:name="${applicationName}"
