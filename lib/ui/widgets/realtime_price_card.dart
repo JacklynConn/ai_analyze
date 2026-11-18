@@ -4,6 +4,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../../core/formatters.dart';
 import '../../core/theme.dart';
+import '../../models/signal.dart';
 import '../../state/dashboard_controller.dart';
 import 'common.dart';
 
@@ -65,6 +66,7 @@ class _RealtimePriceCardState extends State<RealtimePriceCard> {
       ),
       child: Column(
         children: <Widget>[
+          _confirmedSignalBanner(s),
           Row(
             children: <Widget>[
               _quoteBox(
@@ -149,6 +151,82 @@ class _RealtimePriceCardState extends State<RealtimePriceCard> {
       ),
     );
   }
+
+  /// Confirmed-signal banner, shown right on the realtime FOREX.com quote
+  /// (instead of only further down in the signal card) the moment the
+  /// engine publishes a confirmed BUY/SELL — with its trade plan.
+  Widget _confirmedSignalBanner(DashboardState s) {
+    final signal = s.activeSignal;
+    if (signal == null || !signal.isConfirmed || signal.isExpired) {
+      return const SizedBox.shrink();
+    }
+    final isBuy = signal.action == TradeAction.buy;
+    final color = isBuy ? AppColors.buy : AppColors.sell;
+    final plan = signal.plan;
+    final remaining = signal.expiresAt.difference(DateTime.now());
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 14),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: .14),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: color.withValues(alpha: .65), width: 1.2),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Row(
+              children: <Widget>[
+                Icon(
+                  isBuy ? Icons.trending_up_rounded : Icons.trending_down_rounded,
+                  size: 20,
+                  color: color,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  '${isBuy ? 'BUY' : 'SELL'} CONFIRMED',
+                  style: TextStyle(color: color, fontSize: 17, fontWeight: FontWeight.w900, letterSpacing: .4),
+                ),
+                const SizedBox(width: 8),
+                Pill(
+                  label: '${(signal.confidence * 100).toStringAsFixed(0)}%',
+                  color: color,
+                  filled: true,
+                  dense: true,
+                ),
+                const Spacer(),
+                Text(
+                  remaining.isNegative ? '' : 'valid ${fmtCountdown(remaining)}',
+                  style: const TextStyle(color: AppColors.muted, fontSize: 10.5),
+                ),
+              ],
+            ),
+            if (plan != null) ...<Widget>[
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 14,
+                runSpacing: 4,
+                children: <Widget>[
+                  _planItem('Entry', plan.entry, AppColors.text),
+                  _planItem('SL', plan.stopLoss, AppColors.sell),
+                  _planItem('TP1', plan.takeProfit1, AppColors.buy),
+                  _planItem('TP2', plan.takeProfit2, AppColors.buy),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _planItem(String label, double value, Color color) => Text(
+        '$label ${fmtPrice(value)}',
+        style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w700),
+      );
 
   Widget _quoteBox({required String label, required double? value, required Color color}) {
     return Expanded(
