@@ -41,6 +41,7 @@ class ForexComPriceRepository implements PriceRepository {
   Timer? _fallbackTimer;
   DateTime? _lastTickAt;
   DateTime? _lastEnrichAt;
+  DateTime? _lastConnectAt;
   bool _lastHadBidAsk = false;
   bool _disposed = false;
   bool _started = false;
@@ -60,14 +61,22 @@ class ForexComPriceRepository implements PriceRepository {
       _connect();
       // Poll the same FOREXCOM symbol whenever the socket has been silent.
       _fallbackTimer = Timer.periodic(const Duration(seconds: 3), (_) {
-        final silent = _lastTickAt == null ||
-            DateTime.now().difference(_lastTickAt!) > const Duration(seconds: 8);
+        if (_disposed) return;
+        final silentFor = _lastTickAt == null
+            ? const Duration(days: 1)
+            : DateTime.now().difference(_lastTickAt!);
+        final silent = silentFor > const Duration(seconds: 8);
         // Some quote updates carry only the last price; top up bid/ask
         // from the scanner at most every 20 s so the quote card fills in.
         final needsBidAsk = !_lastHadBidAsk &&
             (_lastEnrichAt == null ||
                 DateTime.now().difference(_lastEnrichAt!) > const Duration(seconds: 20));
-        if ((silent || needsBidAsk) && !_disposed) _pollScanner();
+        if (silent || needsBidAsk) _pollScanner();
+        // Watchdog: on mobile networks a WebSocket often dies *silently*
+        // (NAT timeout, network switch) — no error/done event ever fires,
+        // so the price would freeze forever while the UI still looked
+        // connected. Force a fresh socket if nothing arrived for 12 s.
+        if (silentFor > const Duration(seconds: 12)) _forceReconnect();
       });
       _pollScanner();
     }
@@ -96,6 +105,7 @@ class ForexComPriceRepository implements PriceRepository {
 
   void _connect() {
     if (_disposed) return;
+    _lastConnectAt = DateTime.now();
     try {
       final ch = WebSocketChannel.connect(
         Uri.parse('wss://data.tradingview.com/socket.io/websocket'),
@@ -132,6 +142,26 @@ class ForexComPriceRepository implements PriceRepository {
     if (_disposed) return;
     _reconnectTimer?.cancel();
     _reconnectTimer = Timer(const Duration(seconds: 3), _connect);
+  }
+
+  /// Tears the socket down *now* and reconnects immediately (throttled to
+  /// one attempt per 10 s so a dead network doesn't spin in a tight loop).
+  void _forceReconnect() {
+    if (_disposed) return;
+    if (_lastConnectAt != null &&
+        DateTime.now().difference(_lastConnectAt!) < const Duration(seconds: 10)) {
+      return;
+    }
+    _reconnectTimer?.cancel();
+    final oldSub = _wsSub;
+    final oldChannel = _channel;
+    _wsSub = null;
+    _channel = null;
+    oldSub?.cancel();
+    try {
+      oldChannel?.sink.close();
+    } catch (_) {}
+    _connect();
   }
 
   /// TradingView frames look like `~m~<len>~m~<payload>` and several frames
