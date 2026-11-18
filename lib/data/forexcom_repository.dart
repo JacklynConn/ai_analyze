@@ -8,6 +8,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import '../core/http_headers.dart';
 import '../models/candle.dart';
 import 'price_repository.dart';
+import 'tv_socket.dart';
 
 /// LIVE feed — **FOREX.com XAUUSD** (`FOREXCOM:XAUUSD`).
 ///
@@ -107,10 +108,17 @@ class ForexComPriceRepository implements PriceRepository {
     if (_disposed) return;
     _lastConnectAt = DateTime.now();
     try {
-      final ch = WebSocketChannel.connect(
+      final ch = connectTvSocket(
         Uri.parse('wss://data.tradingview.com/socket.io/websocket'),
       );
       _channel = ch;
+      // A refused upgrade (e.g. missing headers / blocked handshake)
+      // completes `ready` with an error. Nothing else awaits it, so
+      // without this handler it surfaces as an *unhandled*
+      // WebSocketChannelException that crashes the error zone.
+      ch.ready.then((_) {}, onError: (_) {
+        if (identical(_channel, ch)) _scheduleReconnect();
+      });
       final quoteSession = _session('qs_');
 
       _send('set_auth_token', <dynamic>['unauthorized_user_token']);
@@ -319,9 +327,13 @@ class ForexComPriceRepository implements PriceRepository {
     StreamSubscription<dynamic>? sub;
 
     try {
-      ch = WebSocketChannel.connect(
+      ch = connectTvSocket(
         Uri.parse('wss://data.tradingview.com/socket.io/websocket'),
       );
+      final socket = ch!;
+      socket.ready.then((_) {}, onError: (_) {
+        if (!done.isCompleted) done.complete();
+      });
       void send(String m, List<dynamic> p) {
         try {
           ch?.sink.add(_frame(<String, dynamic>{'m': m, 'p': p}));

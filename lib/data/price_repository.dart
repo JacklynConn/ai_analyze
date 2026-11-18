@@ -263,6 +263,11 @@ class FinnhubPriceRepository implements PriceRepository {
     try {
       final ch = WebSocketChannel.connect(Uri.parse('wss://ws.finnhub.io?token=$apiKey'));
       _channel = ch;
+      // Swallow handshake failures here too, otherwise a refused upgrade
+      // surfaces as an unhandled WebSocketChannelException.
+      ch.ready.then((_) {}, onError: (_) {
+        if (identical(_channel, ch)) _channel = null;
+      });
       ch.sink.add('{"type":"subscribe","symbol":"OANDA:XAU_USD"}');
       ch.stream.listen(
         (dynamic msg) {
